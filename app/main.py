@@ -53,43 +53,21 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# API Endpoints
-@app.get("/", tags=["Health"])
-async def root():
-    return {
-        "message": "Welcome to EmployeeMate",
-        "docs": "/docs",
-        "health": "/health"
-    }
-
-
-@app.get("/health", tags=["Health"])
-async def health_check():
+# --- Core Logic Functions ---
+def execute_health_check():
     return {
         "status": "healthy",
-        "app_env": settings.app_env,
+        "app_env": getattr(settings, "app_env", "production"),
         "vector_store_initialized": orchestrator.knowledge_agent.rag.vector_store is not None
     }
 
 
-@app.get("/employees", tags=["Employees"])
-async def get_employees():
-    """
-    GET /employees Endpoint
-    Returns live employee database records with real-time leave balances.
-    """
-    res = orchestrator.hr_agent.db.get_all_employees()
-    return res
+def execute_get_employees():
+    return orchestrator.hr_agent.db.get_all_employees()
 
 
-@app.post("/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK, tags=["Chat Assistant"])
-async def chat(request_payload: ChatRequest):
-    """
-    POST /chat Endpoint
-    Accepts user prompt, optional employee ID, actor role, and conversation history.
-    Routes to KnowledgeAgent, HRAgent, or Orchestrator_MultiAgent with RBAC enforcement.
-    """
-    if not request_payload.prompt and request_payload.prompt != "":
+def execute_chat(request_payload: ChatRequest):
+    if request_payload.prompt is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Prompt field cannot be null."
@@ -115,6 +93,61 @@ async def chat(request_payload: ChatRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing chat request: {str(e)}"
         )
+
+
+# --- Standard Routes ---
+@app.get("/", tags=["Health"])
+async def root():
+    return {
+        "message": "Welcome to EmployeeMate API",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    return execute_health_check()
+
+
+@app.get("/employees", tags=["Employees"])
+async def get_employees():
+    """
+    GET /employees Endpoint
+    Returns live employee database records with real-time leave balances.
+    """
+    return execute_get_employees()
+
+
+@app.post("/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK, tags=["Chat Assistant"])
+async def chat(request_payload: ChatRequest):
+    """
+    POST /chat Endpoint
+    Accepts user prompt, optional employee ID, actor role, and conversation history.
+    Routes to KnowledgeAgent, HRAgent, or Orchestrator_MultiAgent with RBAC enforcement.
+    """
+    return execute_chat(request_payload)
+
+
+# --- Serverless `/api` Alias Routes (for Vercel Routing) ---
+@app.get("/api", tags=["Health Serverless"], include_in_schema=False)
+async def root_api():
+    return await root()
+
+
+@app.get("/api/health", tags=["Health Serverless"], include_in_schema=False)
+async def health_check_api():
+    return execute_health_check()
+
+
+@app.get("/api/employees", tags=["Employees Serverless"], include_in_schema=False)
+async def get_employees_api():
+    return execute_get_employees()
+
+
+@app.post("/api/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK, tags=["Chat Assistant Serverless"], include_in_schema=False)
+async def chat_api(request_payload: ChatRequest):
+    return execute_chat(request_payload)
 
 
 if __name__ == "__main__":
